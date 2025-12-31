@@ -3,3 +3,8 @@ __pycache__/
 .env
 verification/
 flask.log
+*.db
+*.log
+__pycache__/
+.pytest_cache/
+voice_assistant.db

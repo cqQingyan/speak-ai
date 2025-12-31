@@ -8,3 +8,11 @@ pytest
 respx
 jinja2
 pytest-asyncio
+sqlalchemy
+aiosqlite
+passlib[bcrypt]
+python-jose[cryptography]
+tenacity
+scipy
+numpy
+prometheus-fastapi-instrumentator

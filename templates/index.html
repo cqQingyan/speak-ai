@@ -6,25 +6,127 @@
     <title>语音聊天助手</title>
     <link rel="stylesheet" href="/static/style.css">
     <link rel="manifest" href="/static/manifest.json">
+    <style>
+        /* Simple Modal Styles */
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            overflow: auto;
+            background-color: rgba(0,0,0,0.4);
+        }
+        .modal-content {
+            background-color: #fefefe;
+            margin: 15% auto;
+            padding: 20px;
+            border: 1px solid #888;
+            width: 300px;
+            border-radius: 8px;
+        }
+        .close {
+            color: #aaa;
+            float: right;
+            font-size: 28px;
+            font-weight: bold;
+        }
+        .close:hover,
+        .close:focus {
+            color: black;
+            text-decoration: none;
+            cursor: pointer;
+        }
+        /* Settings Panel */
+        .settings-panel {
+            display: none;
+            position: absolute;
+            top: 60px;
+            right: 10px;
+            background: white;
+            border: 1px solid #ccc;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            z-index: 100;
+        }
+        /* Auth Form */
+        .auth-form input {
+            width: 100%;
+            padding: 8px;
+            margin: 5px 0;
+            box-sizing: border-box;
+        }
+        .auth-form button {
+            width: 100%;
+            padding: 10px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+        .hidden { display: none; }
+    </style>
 </head>
 <body>
+    <div id="auth-modal" class="modal" style="display: block;">
+        <div class="modal-content">
+            <h2>登录 / 注册</h2>
+            <div class="auth-form">
+                <input type="text" id="username" placeholder="用户名">
+                <input type="password" id="password" placeholder="密码">
+                <button id="login-btn">登录</button>
+                <button id="register-btn" style="background-color: #008CBA;">注册</button>
+                <p id="auth-msg" style="color: red;"></p>
+            </div>
+        </div>
+    </div>
+
     <div class="chat-container">
         <div class="chat-header">
             <h2>语音助手</h2>
             <div class="header-actions">
+                <button id="settings-btn" class="icon-btn" title="设置">⚙️</button>
                 <button id="clear-btn" class="icon-btn" title="清除历史">🗑️</button>
-                <button id="export-btn" class="icon-btn" title="导出对话">💾</button>
+                <button id="logout-btn" class="icon-btn" title="登出">🚪</button>
             </div>
         </div>
+
+        <div id="settings-panel" class="settings-panel">
+            <label>语音:
+                <select id="voice-select">
+                    <option value="female-shaonv">少女</option>
+                    <option value="male-qn">青葱</option>
+                </select>
+            </label>
+            <br>
+            <label>模式:
+                <select id="input-mode">
+                    <option value="voice">语音</option>
+                    <option value="text">文本</option>
+                </select>
+            </label>
+        </div>
+
         <div class="chat-messages" id="chat-messages">
             <div class="message ai">
-                <div class="bubble">你好！我是你的语音助手，请按住下方的按钮跟我说话。</div>
+                <div class="bubble">你好！我是你的语音助手。</div>
                 <div class="timestamp"></div>
             </div>
         </div>
+
         <div class="chat-controls">
-            <canvas id="visualizer" width="300" height="50"></canvas>
-            <button id="talk-btn" class="talk-btn">按住说话</button>
+            <div id="voice-controls">
+                <canvas id="visualizer" width="300" height="50"></canvas>
+                <button id="talk-btn" class="talk-btn">按住说话</button>
+            </div>
+            <div id="text-controls" class="hidden" style="width: 100%; display: flex;">
+                <input type="text" id="text-input" placeholder="输入消息..." style="flex:1; padding: 10px;">
+                <button id="send-text-btn" style="padding: 10px;">发送</button>
+            </div>
             <div id="status" class="status"></div>
         </div>
     </div>
