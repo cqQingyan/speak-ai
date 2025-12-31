@@ -1,291 +1,402 @@
-document.addEventListener('DOMContentLoaded', () => {
-    const talkBtn = document.getElementById('talk-btn');
-    const statusDiv = document.getElementById('status');
-    const messagesDiv = document.getElementById('chat-messages');
-    const clearBtn = document.getElementById('clear-btn');
-    const exportBtn = document.getElementById('export-btn');
-    const visualizerCanvas = document.getElementById('visualizer');
-    const canvasCtx = visualizerCanvas.getContext('2d');
+let mediaRecorder;
+let audioChunks = [];
+let isRecording = false;
+let audioContext;
+let analyser;
+let source;
+let animationId;
+let token = localStorage.getItem('access_token');
 
-    let mediaRecorder;
-    let audioChunks = [];
-    let chatHistory = [];
-    let isRecording = false;
-    let audioQueue = [];
-    let isPlaying = false;
+// DOM Elements
+const talkBtn = document.getElementById('talk-btn');
+const statusDiv = document.getElementById('status');
+const chatMessages = document.getElementById('chat-messages');
+const visualizer = document.getElementById('visualizer');
+const canvasCtx = visualizer.getContext('2d');
+const clearBtn = document.getElementById('clear-btn');
+const settingsBtn = document.getElementById('settings-btn');
+const settingsPanel = document.getElementById('settings-panel');
+const inputModeSelect = document.getElementById('input-mode');
+const voiceSelect = document.getElementById('voice-select');
+const voiceControls = document.getElementById('voice-controls');
+const textControls = document.getElementById('text-controls');
+const textInput = document.getElementById('text-input');
+const sendTextBtn = document.getElementById('send-text-btn');
 
-    // Audio Context for Visualization
-    let audioContext;
-    let analyser;
-    let microphone;
-    let javascriptNode;
+// Auth Elements
+const authModal = document.getElementById('auth-modal');
+const usernameInput = document.getElementById('username');
+const passwordInput = document.getElementById('password');
+const loginBtn = document.getElementById('login-btn');
+const registerBtn = document.getElementById('register-btn');
+const authMsg = document.getElementById('auth-msg');
+const logoutBtn = document.getElementById('logout-btn');
 
-    // Service Worker Registration
-    if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('/static/sw.js')
-            .then(registration => {
-                console.log('ServiceWorker registration successful with scope: ', registration.scope);
-            })
-            .catch(err => {
-                console.log('ServiceWorker registration failed: ', err);
-            });
-    }
+// State
+let chatHistory = [];
+let audioQueue = [];
+let isPlaying = false;
 
-    // Initialize UI
-    const now = new Date();
-    const timeStr = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
-    if (document.querySelector('.message.ai .timestamp')) {
-        document.querySelector('.message.ai .timestamp').textContent = timeStr;
-    }
+// --- Auth Logic ---
+if (token) {
+    authModal.style.display = "none";
+}
 
-    // Check for MediaRecorder support
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        statusDiv.textContent = "您的浏览器不支持录音功能。";
-        talkBtn.disabled = true;
+async function handleAuth(endpoint) {
+    const username = usernameInput.value;
+    const password = passwordInput.value;
+
+    if(!username || !password) {
+        authMsg.textContent = "Please enter username and password.";
         return;
     }
 
-    // Visualization Function
-    const setupVisualizer = (stream) => {
-        if (!audioContext) {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    try {
+        let body;
+        let headers = {};
+
+        if (endpoint.includes('token')) {
+            // OAuth2 expects form data
+            body = new URLSearchParams();
+            body.append('username', username);
+            body.append('password', password);
+            headers['Content-Type'] = 'application/x-www-form-urlencoded';
+        } else {
+            body = JSON.stringify({ username, password });
+            headers['Content-Type'] = 'application/json';
         }
 
-        // Ensure AudioContext is running (mobile browsers suspend it)
-        if (audioContext.state === 'suspended') {
-            audioContext.resume();
-        }
-
-        analyser = audioContext.createAnalyser();
-        microphone = audioContext.createMediaStreamSource(stream);
-        javascriptNode = audioContext.createScriptProcessor(2048, 1, 1);
-
-        analyser.smoothingTimeConstant = 0.8;
-        analyser.fftSize = 1024;
-
-        microphone.connect(analyser);
-        analyser.connect(javascriptNode);
-        javascriptNode.connect(audioContext.destination);
-
-        javascriptNode.onaudioprocess = () => {
-            const array = new Uint8Array(analyser.frequencyBinCount);
-            analyser.getByteTimeDomainData(array);
-
-            canvasCtx.fillStyle = '#f9f9f9'; // bg color
-            canvasCtx.fillRect(0, 0, visualizerCanvas.width, visualizerCanvas.height);
-
-            canvasCtx.lineWidth = 2;
-            canvasCtx.strokeStyle = '#007bff';
-            canvasCtx.beginPath();
-
-            const sliceWidth = visualizerCanvas.width * 1.0 / array.length;
-            let x = 0;
-
-            for (let i = 0; i < array.length; i++) {
-                const v = array[i] / 128.0;
-                const y = v * visualizerCanvas.height / 2;
-
-                if (i === 0) {
-                    canvasCtx.moveTo(x, y);
-                } else {
-                    canvasCtx.lineTo(x, y);
-                }
-
-                x += sliceWidth;
-            }
-
-            canvasCtx.lineTo(visualizerCanvas.width, visualizerCanvas.height / 2);
-            canvasCtx.stroke();
-        };
-    };
-
-    const stopVisualizer = () => {
-        if (javascriptNode) {
-            javascriptNode.disconnect();
-            javascriptNode = null;
-        }
-        if (microphone) {
-            microphone.disconnect();
-            microphone = null;
-        }
-        if (analyser) {
-            analyser.disconnect();
-            analyser = null;
-        }
-        // clear canvas
-        canvasCtx.fillStyle = '#f9f9f9';
-        canvasCtx.fillRect(0, 0, visualizerCanvas.width, visualizerCanvas.height);
-    };
-
-    const startRecording = async () => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-
-            setupVisualizer(stream);
-
-            mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    audioChunks.push(event.data);
-                }
-            };
-
-            mediaRecorder.onstop = sendAudio;
-
-            audioChunks = [];
-            mediaRecorder.start();
-            isRecording = true;
-            talkBtn.classList.add('recording');
-            talkBtn.textContent = "松开 发送";
-            statusDiv.textContent = "正在录音...";
-        } catch (err) {
-            console.error("Error accessing microphone:", err);
-            statusDiv.textContent = "无法访问麦克风。";
-        }
-    };
-
-    const stopRecording = () => {
-        if (mediaRecorder && isRecording) {
-            mediaRecorder.stop();
-            // Stop all tracks to release microphone
-            mediaRecorder.stream.getTracks().forEach(track => track.stop());
-            stopVisualizer();
-
-            isRecording = false;
-            talkBtn.classList.remove('recording');
-            talkBtn.textContent = "按住说话";
-            statusDiv.textContent = "处理中...";
-        }
-    };
-
-    const playNextAudioChunk = () => {
-        if (audioQueue.length === 0) {
-            isPlaying = false;
-            statusDiv.textContent = "";
-            return;
-        }
-
-        isPlaying = true;
-        statusDiv.textContent = "正在播放...";
-        const base64Data = audioQueue.shift();
-        const audio = new Audio("data:audio/mp3;base64," + base64Data);
-        audio.onended = playNextAudioChunk;
-        audio.play().catch(e => {
-            console.error("Audio play error:", e);
-            playNextAudioChunk();
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: headers,
+            body: body
         });
-    };
 
-    const sendAudio = async () => {
-        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-        const formData = new FormData();
-        formData.append('audio', audioBlob, 'recording.webm');
-        formData.append('history', JSON.stringify(chatHistory));
+        const data = await response.json();
 
-        try {
-            const response = await fetch('/api/process_audio', {
-                method: 'POST',
-                body: formData
-            });
+        if (response.ok) {
+            token = data.access_token;
+            localStorage.setItem('access_token', token);
+            authModal.style.display = "none";
+            authMsg.textContent = "";
+        } else {
+            authMsg.textContent = data.detail || "Error";
+        }
+    } catch (e) {
+        authMsg.textContent = "Network Error";
+    }
+}
 
-            if (!response.ok) {
-                const errorData = await response.json().catch(() => ({}));
-                throw new Error(errorData.detail || 'Server error');
-            }
+loginBtn.addEventListener('click', () => handleAuth('/api/auth/token'));
+registerBtn.addEventListener('click', () => handleAuth('/api/auth/register'));
+logoutBtn.addEventListener('click', () => {
+    localStorage.removeItem('access_token');
+    location.reload();
+});
 
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder("utf-8");
-            let buffer = "";
+// --- UI Logic ---
+settingsBtn.addEventListener('click', () => {
+    settingsPanel.style.display = settingsPanel.style.display === 'block' ? 'none' : 'block';
+});
 
-            while (true) {
-                const { done, value } = await reader.read();
-                if (done) break;
+inputModeSelect.addEventListener('change', (e) => {
+    if(e.target.value === 'text') {
+        voiceControls.style.display = 'none';
+        textControls.style.display = 'flex';
+        // Force hidden class removal if used
+        textControls.classList.remove('hidden');
+    } else {
+        voiceControls.style.display = 'block';
+        textControls.style.display = 'none';
+        textControls.classList.add('hidden');
+    }
+});
 
-                buffer += decoder.decode(value, { stream: true });
-                const lines = buffer.split("\n");
-                buffer = lines.pop(); // Keep last incomplete line
+// --- Audio Logic ---
 
-                for (const line of lines) {
-                    if (!line.trim()) continue;
-                    try {
-                        const data = JSON.parse(line);
-                        if (data.type === 'meta') {
-                            addMessage(data.user_text, 'user');
-                            addMessage(data.ai_text, 'ai');
+// Initialize Audio Context (must be triggered by user interaction)
+function initAudio() {
+    if (!audioContext) {
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+    }
+}
 
-                            chatHistory.push({role: "user", content: data.user_text});
-                            chatHistory.push({role: "assistant", content: data.ai_text});
-                            if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
-                        } else if (data.type === 'audio') {
-                            audioQueue.push(data.data);
-                            if (!isPlaying) {
-                                playNextAudioChunk();
-                            }
-                        }
-                    } catch (e) {
-                        console.error("JSON Parse Error", e);
-                    }
+// Visualizer
+function drawVisualizer() {
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    function draw() {
+        if (!isRecording) return;
+        animationId = requestAnimationFrame(draw);
+
+        analyser.getByteFrequencyData(dataArray);
+
+        canvasCtx.fillStyle = 'rgb(240, 240, 240)';
+        canvasCtx.fillRect(0, 0, visualizer.width, visualizer.height);
+
+        const barWidth = (visualizer.width / bufferLength) * 2.5;
+        let barHeight;
+        let x = 0;
+
+        for(let i = 0; i < bufferLength; i++) {
+            barHeight = dataArray[i] / 2;
+
+            canvasCtx.fillStyle = 'rgb(50,50,' + (barHeight+100) + ')';
+            canvasCtx.fillRect(x, visualizer.height-barHeight, barWidth, barHeight);
+
+            x += barWidth + 1;
+        }
+    }
+    draw();
+}
+
+// Recording
+talkBtn.addEventListener('mousedown', async () => {
+    if (!token) return alert("Please login first");
+    initAudio();
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream); // Default browser format (likely webm)
+        audioChunks = [];
+
+        source = audioContext.createMediaStreamSource(stream);
+        source.connect(analyser);
+
+        mediaRecorder.ondataavailable = (event) => {
+            audioChunks.push(event.data);
+        };
+
+        mediaRecorder.start();
+        isRecording = true;
+        statusDiv.textContent = "正在录音...";
+        talkBtn.classList.add('recording');
+        drawVisualizer();
+
+    } catch (err) {
+        console.error("Error accessing microphone:", err);
+        statusDiv.textContent = "无法访问麦克风";
+    }
+});
+
+talkBtn.addEventListener('mouseup', () => {
+    if (isRecording && mediaRecorder) {
+        mediaRecorder.stop();
+        isRecording = false;
+        statusDiv.textContent = "处理中...";
+        talkBtn.classList.remove('recording');
+        cancelAnimationFrame(animationId);
+
+        // Stop all tracks
+        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+
+        mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+            await processAudio(audioBlob);
+        };
+    }
+});
+
+// Text Input
+sendTextBtn.addEventListener('click', async () => {
+    const text = textInput.value;
+    if(!text) return;
+
+    // UI Update immediately
+    // addMessage('user', text); // Don't add twice, meta event will add it.
+    // Actually, usually good to add immediately for UI responsiveness, but our stream returns meta first.
+    // Let's wait for meta or add pending.
+    // Let's add it but manage duplication?
+    // The `handleStreamData` adds message. If I add here, I get double.
+    // I will NOT add here, and let the server response drive UI.
+    // Or I can add here and ignore 'user_text' from meta if I track it.
+    // Simple way: Clear input, let server echo back.
+    textInput.value = '';
+
+    try {
+        const voiceId = voiceSelect.value;
+        const body = JSON.stringify({
+            text: text,
+            history: chatHistory,
+            voice_id: voiceId,
+            temperature: 0.7
+        });
+
+        const response = await fetch('/api/process_text', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/json'
+            },
+            body: body
+        });
+
+        await handleResponseStream(response);
+
+    } catch (e) {
+        console.error("Text Chat Failed", e);
+        statusDiv.textContent = "发送失败";
+    }
+});
+
+async function processAudio(audioBlob) {
+    const formData = new FormData();
+    formData.append("audio", audioBlob, "recording.webm");
+    formData.append("history", JSON.stringify(chatHistory));
+    formData.append("voice_id", voiceSelect.value);
+    formData.append("temperature", "0.7"); // Could be dynamic
+
+    try {
+        const response = await fetch('/api/process_audio', {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`
+            },
+            body: formData
+        });
+
+        await handleResponseStream(response);
+
+    } catch (e) {
+        console.error("Upload failed", e);
+        statusDiv.textContent = "网络错误，请重试";
+    }
+}
+
+async function handleResponseStream(response) {
+        if (response.status === 401) {
+             authModal.style.display = "block";
+             statusDiv.textContent = "请重新登录";
+             return;
+        }
+
+        if (!response.ok) {
+            const err = await response.text();
+            console.error("Server Error:", err);
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep incomplete line
+
+            for (const line of lines) {
+                if (!line) continue;
+                try {
+                    const data = JSON.parse(line);
+                    handleStreamData(data);
+                } catch (e) {
+                    console.error("JSON Parse Error", e);
                 }
             }
-
-        } catch (error) {
-            console.error("Error sending audio:", error);
-            statusDiv.textContent = "发生错误: " + error.message;
-            addMessage("Error: " + error.message, 'ai');
         }
-    };
 
-    const addMessage = (text, sender) => {
-        const messageDiv = document.createElement('div');
-        messageDiv.classList.add('message', sender);
+        statusDiv.textContent = "完成";
+}
 
-        const bubbleDiv = document.createElement('div');
-        bubbleDiv.classList.add('bubble');
-        bubbleDiv.textContent = text;
-
-        const timestampDiv = document.createElement('div');
-        timestampDiv.classList.add('timestamp');
-        const now = new Date();
-        timestampDiv.textContent = now.getHours().toString().padStart(2, '0') + ':' + now.getMinutes().toString().padStart(2, '0');
-
-        messageDiv.appendChild(bubbleDiv);
-        messageDiv.appendChild(timestampDiv);
-        messagesDiv.appendChild(messageDiv);
-
-        messagesDiv.scrollTop = messagesDiv.scrollHeight;
-    };
-
-    // Clear History
-    clearBtn.addEventListener('click', () => {
-        if(confirm("确定要清除聊天记录吗？")) {
-             chatHistory = [];
-             messagesDiv.innerHTML = '<div class="message ai"><div class="bubble">聊天记录已清除。</div><div class="timestamp">' +
-             (new Date()).getHours().toString().padStart(2, '0') + ':' + (new Date()).getMinutes().toString().padStart(2, '0') + '</div></div>';
+        if (response.status === 401) {
+             authModal.style.display = "block";
+             statusDiv.textContent = "请重新登录";
+             return;
         }
-    });
 
-    // Export History
-    exportBtn.addEventListener('click', () => {
-        const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(chatHistory, null, 2));
-        const downloadAnchorNode = document.createElement('a');
-        downloadAnchorNode.setAttribute("href", dataStr);
-        downloadAnchorNode.setAttribute("download", "chat_history_" + new Date().toISOString() + ".json");
-        document.body.appendChild(downloadAnchorNode); // required for firefox
-        downloadAnchorNode.click();
-        downloadAnchorNode.remove();
-    });
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
 
-    talkBtn.addEventListener('mousedown', startRecording);
-    talkBtn.addEventListener('mouseup', stopRecording);
-    talkBtn.addEventListener('mouseleave', stopRecording);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
 
-    talkBtn.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        startRecording();
-    });
-    talkBtn.addEventListener('touchend', (e) => {
-        e.preventDefault();
-        stopRecording();
-    });
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop(); // Keep incomplete line
+
+            for (const line of lines) {
+                if (!line) continue;
+                try {
+                    const data = JSON.parse(line);
+                    handleStreamData(data);
+                } catch (e) {
+                    console.error("JSON Parse Error", e);
+                }
+            }
+        }
+
+        statusDiv.textContent = "完成";
+
+    } catch (e) {
+        console.error("Upload failed", e);
+        statusDiv.textContent = "网络错误，请重试";
+    }
+}
+
+function handleStreamData(data) {
+    if (data.type === 'meta') {
+        addMessage('user', data.user_text);
+        addMessage('ai', data.ai_text);
+
+        // Update History
+        chatHistory.push({role: "user", content: data.user_text});
+        chatHistory.push({role: "assistant", content: data.ai_text});
+    } else if (data.type === 'audio') {
+        queueAudio(data.data);
+    }
+}
+
+function addMessage(role, text) {
+    const div = document.createElement('div');
+    div.className = `message ${role}`;
+    div.innerHTML = `<div class="bubble">${text}</div><div class="timestamp">${new Date().toLocaleTimeString()}</div>`;
+    chatMessages.appendChild(div);
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function queueAudio(base64Data) {
+    audioQueue.push(base64Data);
+    if (!isPlaying) {
+        playNextAudio();
+    }
+}
+
+async function playNextAudio() {
+    if (audioQueue.length === 0) {
+        isPlaying = false;
+        return;
+    }
+
+    isPlaying = true;
+    const base64Data = audioQueue.shift();
+    const audioBytes = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0));
+
+    try {
+        const audioBuffer = await audioContext.decodeAudioData(audioBytes.buffer);
+        const source = audioContext.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(audioContext.destination);
+        source.onended = playNextAudio;
+        source.start(0);
+    } catch (e) {
+        console.error("Audio Decode Error", e);
+        playNextAudio();
+    }
+}
+
+clearBtn.addEventListener('click', () => {
+    chatHistory = [];
+    chatMessages.innerHTML = '';
 });

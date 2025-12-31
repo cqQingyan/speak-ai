@@ -1,20 +1,18 @@
 import httpx
 import logging
 from config import Config
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 logger = logging.getLogger(__name__)
 
-async def chat_with_llm(user_text, history=[]):
+@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=4, max=10), retry=retry_if_exception_type(httpx.ConnectError))
+async def chat_with_llm(user_text, history=[], temperature=None):
     """
     Sends text to SiliconFlow's DeepSeek-V3.2 model.
-
-    Args:
-        user_text (str): The user's input text.
-        history (list): List of previous messages (optional).
-
-    Returns:
-        str: The AI's response text.
     """
+    if temperature is None:
+        temperature = Config.DEFAULT_TEMPERATURE
+
     url = "https://api.siliconflow.cn/v1/chat/completions"
 
     messages = history + [{"role": "user", "content": user_text}]
@@ -24,7 +22,7 @@ async def chat_with_llm(user_text, history=[]):
         "messages": messages,
         "stream": False,
         "max_tokens": 512,
-        "temperature": 0.7
+        "temperature": temperature
     }
 
     headers = {
@@ -48,4 +46,4 @@ async def chat_with_llm(user_text, history=[]):
             return "服务暂时不可用，请稍后再试。"
     except Exception as e:
         logger.error(f"LLM Exception: {e}")
-        return "发生错误，请重试。"
+        raise # Allow retry
