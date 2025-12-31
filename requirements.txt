@@ -1,5 +1,10 @@
-Flask
-requests
-websockets
+fastapi
+uvicorn
+httpx
+python-multipart
+slowapi
 python-dotenv
-aiohttp
+pytest
+respx
+jinja2
+pytest-asyncio

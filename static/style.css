@@ -35,8 +35,28 @@ body {
     background-color: #007bff;
     color: white;
     padding: 16px;
-    text-align: center;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
     flex-shrink: 0;
+}
+
+.header-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.icon-btn {
+    background: none;
+    border: none;
+    color: white;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 4px;
+}
+
+.icon-btn:hover {
+    opacity: 0.8;
 }
 
 .chat-messages {
@@ -50,16 +70,18 @@ body {
 
 .message {
     display: flex;
+    flex-direction: column;
     max-width: 80%;
 }
 
 .message.user {
     align-self: flex-end;
-    flex-direction: row-reverse;
+    align-items: flex-end;
 }
 
 .message.ai {
     align-self: flex-start;
+    align-items: flex-start;
 }
 
 .bubble {
@@ -82,6 +104,13 @@ body {
     border-bottom-left-radius: 4px;
 }
 
+.timestamp {
+    font-size: 11px;
+    color: #999;
+    margin-top: 4px;
+    padding: 0 4px;
+}
+
 .chat-controls {
     padding: 16px;
     background-color: #fff;
@@ -91,6 +120,14 @@ body {
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
+}
+
+#visualizer {
+    width: 100%;
+    height: 50px;
+    background-color: #f9f9f9;
+    border-radius: 4px;
+    margin-bottom: 5px;
 }
 
 .talk-btn {

@@ -5,18 +5,25 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>语音聊天助手</title>
     <link rel="stylesheet" href="/static/style.css">
+    <link rel="manifest" href="/static/manifest.json">
 </head>
 <body>
     <div class="chat-container">
         <div class="chat-header">
             <h2>语音助手</h2>
+            <div class="header-actions">
+                <button id="clear-btn" class="icon-btn" title="清除历史">🗑️</button>
+                <button id="export-btn" class="icon-btn" title="导出对话">💾</button>
+            </div>
         </div>
         <div class="chat-messages" id="chat-messages">
             <div class="message ai">
                 <div class="bubble">你好！我是你的语音助手，请按住下方的按钮跟我说话。</div>
+                <div class="timestamp"></div>
             </div>
         </div>
         <div class="chat-controls">
+            <canvas id="visualizer" width="300" height="50"></canvas>
             <button id="talk-btn" class="talk-btn">按住说话</button>
             <div id="status" class="status"></div>
         </div>
