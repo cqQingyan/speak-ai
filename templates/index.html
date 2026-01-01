@@ -2,32 +2,108 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>语音聊天助手</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>AI Voice Assistant</title>
     <link rel="stylesheet" href="/static/style.css">
     <link rel="manifest" href="/static/manifest.json">
+    <style>
+        /* Simple additions for Login Modal */
+        #auth-modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            justify-content: center;
+            align-items: center;
+        }
+        .modal-content {
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            width: 90%;
+            max-width: 400px;
+            text-align: center;
+        }
+        .modal-content input {
+            width: 100%;
+            padding: 10px;
+            margin: 10px 0;
+            box-sizing: border-box;
+        }
+        .modal-content button {
+            width: 100%;
+            padding: 10px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        #login-error {
+            color: red;
+            font-size: 0.9em;
+        }
+        /* Settings Gear */
+        #settings-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: none;
+            border: none;
+            font-size: 24px;
+            cursor: pointer;
+        }
+    </style>
 </head>
 <body>
-    <div class="chat-container">
-        <div class="chat-header">
-            <h2>语音助手</h2>
-            <div class="header-actions">
-                <button id="clear-btn" class="icon-btn" title="清除历史">🗑️</button>
-                <button id="export-btn" class="icon-btn" title="导出对话">💾</button>
-            </div>
-        </div>
-        <div class="chat-messages" id="chat-messages">
-            <div class="message ai">
-                <div class="bubble">你好！我是你的语音助手，请按住下方的按钮跟我说话。</div>
-                <div class="timestamp"></div>
-            </div>
-        </div>
-        <div class="chat-controls">
-            <canvas id="visualizer" width="300" height="50"></canvas>
-            <button id="talk-btn" class="talk-btn">按住说话</button>
-            <div id="status" class="status"></div>
+    <div id="auth-modal" style="display: flex;"> <!-- Default open if no token -->
+        <div class="modal-content">
+            <h2 id="auth-title">登录</h2>
+            <input type="text" id="username" placeholder="用户名">
+            <input type="password" id="password" placeholder="密码">
+            <input type="email" id="email" placeholder="邮箱 (仅注册)" style="display:none;">
+            <p id="login-error"></p>
+            <button id="auth-submit-btn">登录</button>
+            <p style="margin-top:10px; font-size:0.9em;">
+                <a href="#" id="toggle-auth-mode">没有账号？去注册</a>
+            </p>
         </div>
     </div>
+
+    <div class="container">
+        <header>
+            <h1>AI 语音助手</h1>
+            <button id="settings-btn">⚙️</button>
+        </header>
+
+        <div class="chat-container">
+            <div id="chat-messages" class="messages">
+                <div class="message ai">
+                    <div class="bubble">你好！我是你的语音助手，请按住按钮说话。</div>
+                    <div class="timestamp"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="visualizer-container">
+             <canvas id="visualizer"></canvas>
+        </div>
+
+        <div class="controls">
+            <div id="status">准备就绪</div>
+            <button id="talk-btn">按住说话</button>
+        </div>
+
+        <div class="extra-controls">
+             <button id="clear-btn">清除历史</button>
+             <button id="export-btn">导出记录</button>
+        </div>
+    </div>
+
     <script src="/static/script.js"></script>
 </body>
 </html>

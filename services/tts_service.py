@@ -1,32 +1,24 @@
 import httpx
 import logging
 import json
+import asyncio
 from config import Config
-from functools import lru_cache
 
 logger = logging.getLogger(__name__)
 
-# Simple in-memory LRU cache using a dictionary for async context is tricky with decorators.
-# We will use a global dictionary and manage size manually or use a library.
-# Given constraints, a simple dict with max size logic is fine, or just standard lru_cache on a wrapper.
-# Since we need to cache bytes (which are large), we should be careful.
-# But for text keys it's fine.
-# Let's use a simple global dict for now.
+# Cache (Simple Dict for now)
 TTS_CACHE = {}
 MAX_CACHE_SIZE = 100
 
-async def text_to_speech_stream(text):
+async def tts_request(text):
     """
-    Converts text to speech using Minimax T2A HTTP API with streaming.
-    Yields chunks of audio bytes.
-
-    Args:
-        text (str): Text to speak.
-
-    Yields:
-        bytes: Audio chunk.
+    Helper to send a single TTS request for a sentence.
+    Yields the full audio bytes for that sentence once complete.
     """
-    # Check cache first
+    if not text.strip():
+        return
+
+    # Check Cache
     if text in TTS_CACHE:
         logger.info("TTS Cache Hit")
         yield TTS_CACHE[text]
@@ -41,7 +33,7 @@ async def text_to_speech_stream(text):
     payload = {
         "model": "speech-01-turbo",
         "text": text,
-        "stream": True, # Enable streaming
+        "stream": True,
         "voice_setting": {
             "voice_id": "female-shaonv",
             "speed": 1.0,
@@ -65,31 +57,50 @@ async def text_to_speech_stream(text):
                     return
 
                 async for line in response.aiter_lines():
-                    if not line:
-                        continue
-                    if line.startswith("data:"): # SSE format
+                    if not line: continue
+                    if line.startswith("data:"):
                         line = line[5:]
 
                     try:
                         data = json.loads(line)
                         if 'data' in data and 'audio' in data['data']:
-                            hex_audio = data['data']['audio']
-                            chunk = bytes.fromhex(hex_audio)
+                            chunk = bytes.fromhex(data['data']['audio'])
                             full_audio += chunk
-                            yield chunk
                     except json.JSONDecodeError:
                         continue
-                    except Exception as e:
-                        logger.error(f"TTS Stream Error: {e}")
 
-        # Update Cache
+        # Cache Update and Yield Full Buffer
+        # We yield the complete buffer so the frontend gets a valid playable file (MP3) for this sentence.
         if full_audio:
             if len(TTS_CACHE) >= MAX_CACHE_SIZE:
-                # Remove oldest (randomish since py3.7+ dicts preserve insertion order, popitem(last=False) works for FIFO)
-                # But standard dict popitem removes LIFO.
-                # Let's just clear if full or remove arbitrary.
                 TTS_CACHE.pop(next(iter(TTS_CACHE)))
             TTS_CACHE[text] = full_audio
+            yield full_audio
 
     except Exception as e:
-        logger.error(f"TTS Exception: {e}")
+        logger.error(f"TTS Request Exception: {e}")
+
+async def text_to_speech_stream(text_iterator):
+    """
+    Consumes an async generator of text tokens, buffers them into sentences,
+    and yields audio chunks (full sentences) for each sentence.
+    """
+    buffer = ""
+    punctuation = "。！？；!?;."
+
+    async for token in text_iterator:
+        buffer += token
+
+        # Check if we have a full sentence
+        if any(p in token for p in punctuation):
+            # Actually, let's just send the buffer if it ends with punctuation or is long enough
+            # to ensure we don't send too small fragments that sound unnatural.
+            if buffer[-1] in punctuation or len(buffer) > 50:
+                async for audio_chunk in tts_request(buffer):
+                    yield audio_chunk
+                buffer = ""
+
+    # Process remaining buffer
+    if buffer:
+        async for audio_chunk in tts_request(buffer):
+            yield audio_chunk

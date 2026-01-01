@@ -12,6 +12,8 @@ from config import Config, setup_logging
 from services.asr_service import transcribe_audio
 from services.llm_service import chat_with_llm
 from services.tts_service import text_to_speech_stream
+from database import engine, Base
+from routers import auth_router, ws_router
 
 # Setup
 setup_logging()
@@ -27,6 +29,15 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 # Static & Templates
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
+
+# Include Routers
+app.include_router(auth_router.router, prefix="/auth", tags=["auth"])
+app.include_router(ws_router.router, tags=["websocket"])
+
+@app.on_event("startup")
+async def startup():
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
