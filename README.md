@@ -1,46 +1,59 @@
-# Voice Assistant
+# AI Voice Assistant
 
-A voice assistant web application built with Python FastAPI and Vanilla JS. Supports Audio Recording, ASR, LLM Chat, and Streaming TTS.
+A real-time voice assistant web application using Volcengine (ASR), SiliconFlow (LLM), and Minimax (TTS).
 
 ## Features
 
-- **Voice Interaction:** Push-to-talk recording with waveform visualization.
-- **AI Chat:** Uses SiliconFlow (DeepSeek) for intelligence.
-- **Streaming TTS:** Low latency audio response using Minimax API.
-- **Chat History:** Save/Clear/Export chat history.
-- **Mobile Friendly:** PWA support, optimized touch controls.
-- **Performance:** Async backend, caching for TTS.
+*   **Real-time Interaction:** WebSocket-based full-duplex communication.
+*   **Streaming ASR:** Volcengine WebSocket API for low-latency recognition.
+*   **Streaming LLM:** SiliconFlow (DeepSeek) with token streaming.
+*   **Streaming TTS:** Minimax audio streaming.
+*   **Authentication:** User registration and login (JWT).
+*   **Dockerized:** Easy deployment with Docker Compose.
 
-## Installation
+## Quick Start
 
-1. Clone the repository.
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-3. Create a `.env` file with your API keys:
-   ```env
-   SILICON_KEY=your_siliconflow_key
-   MINIMAX_GROUP_ID=your_minimax_group_id
-   MINIMAX_API_KEY=your_minimax_api_key
-   ```
+1.  **Clone the repository.**
+2.  **Configure Credentials:**
+    Create a `.env` file or set environment variables in `docker-compose.yml`.
+    ```env
+    VOLC_APPID=your_volc_appid
+    VOLC_TOKEN=your_volc_token
+    VOLC_SECRET=your_volc_secret
+    SILICON_KEY=your_silicon_key
+    MINIMAX_GROUP_ID=your_minimax_group_id
+    MINIMAX_API_KEY=your_minimax_api_key
+    ```
+3.  **Run with Docker Compose:**
+    ```bash
+    docker-compose up --build
+    ```
+4.  **Access:**
+    Open `http://localhost:8000`.
 
-## Usage
+## API Documentation
 
-Run the server:
-```bash
-python main.py
-```
-Or with uvicorn directly:
-```bash
-uvicorn main:app --reload
-```
+*   **HTTP API:** `http://localhost:8000/docs` (Swagger UI)
+*   **WebSocket:** `/ws/chat`
 
-Open `http://localhost:8000` in your browser.
+## Development
 
-## Testing
+1.  **Install Dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+2.  **Run Locally:**
+    ```bash
+    uvicorn main:app --reload
+    ```
+3.  **Run Tests:**
+    ```bash
+    pytest
+    ```
 
-Run tests with pytest:
-```bash
-pytest
-```
+## Architecture
+
+*   **Frontend:** Vanilla JS, WebSocket, AudioContext.
+*   **Backend:** FastAPI, AsyncIO.
+*   **Database:** SQLite (Async).
+

@@ -8,3 +8,8 @@ pytest
 respx
 jinja2
 pytest-asyncio
+websockets
+sqlalchemy
+aiosqlite
+python-jose[cryptography]
+passlib[bcrypt]
