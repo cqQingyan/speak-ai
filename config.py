@@ -1,35 +1,60 @@
 import os
-import logging
-from dotenv import load_dotenv
+import sys
+from pydantic_settings import BaseSettings
+from pydantic import Field
+from loguru import logger
 
-load_dotenv()
-
-class Config:
+class Settings(BaseSettings):
     # Volcengine (ASR)
-    VOLC_APPID = os.getenv("VOLC_APPID")
-    VOLC_TOKEN = os.getenv("VOLC_TOKEN")
-    VOLC_SECRET = os.getenv("VOLC_SECRET")
+    VOLC_APPID: str = Field(default="", env="VOLC_APPID")
+    VOLC_TOKEN: str = Field(default="", env="VOLC_TOKEN")
+    VOLC_SECRET: str = Field(default="", env="VOLC_SECRET")
 
     # SiliconFlow (LLM)
-    SILICON_KEY = os.getenv("SILICON_KEY")
+    SILICON_KEY: str = Field(default="", env="SILICON_KEY")
 
     # Minimax (TTS)
-    MINIMAX_GROUP_ID = os.getenv("MINIMAX_GROUP_ID")
-    MINIMAX_API_KEY = os.getenv("MINIMAX_API_KEY")
+    MINIMAX_GROUP_ID: str = Field(default="", env="MINIMAX_GROUP_ID")
+    MINIMAX_API_KEY: str = Field(default="", env="MINIMAX_API_KEY")
 
     # App
-    PORT = int(os.environ.get('PORT', 8000))
-    HOST = os.environ.get('HOST', '0.0.0.0')
+    PORT: int = Field(default=8000, env="PORT")
+    HOST: str = Field(default="0.0.0.0", env="HOST")
+    ENV: str = Field(default="dev", env="ENV")
 
     # Database & Auth
-    DATABASE_URL = os.environ.get('DATABASE_URL', 'sqlite+aiosqlite:///./voice_assistant.db')
-    SECRET_KEY = os.environ.get('SECRET_KEY', 'your-secret-key-change-me')
-    ALGORITHM = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES = 30
+    DATABASE_URL: str = Field(default="sqlite+aiosqlite:///./voice_assistant.db", env="DATABASE_URL")
+    SECRET_KEY: str = Field(default="your-secret-key-change-me", env="SECRET_KEY")
+    ALGORITHM: str = Field(default="HS256")
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=30)
+    REFRESH_TOKEN_EXPIRE_DAYS: int = Field(default=7)
+
+    # Redis
+    REDIS_URL: str = Field(default="redis://localhost:6379/0", env="REDIS_URL")
+
+    # SSL
+    SSL_CERT_FILE: str | None = Field(default=None, env="SSL_CERT_FILE")
+    SSL_KEY_FILE: str | None = Field(default=None, env="SSL_KEY_FILE")
+
+    class Config:
+        env_file = ".env"
+        extra = "ignore"
+
+settings = Settings()
 
 def setup_logging():
-    logging.basicConfig(
-        level=logging.INFO,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+    logger.remove()
+    logger.add(
+        sys.stderr,
+        format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level> | {extra}",
+        level="INFO"
     )
+    # File logging (JSON formatted for "structure")
+    logger.add(
+        "app.log",
+        rotation="500 MB",
+        serialize=True,
+        level="INFO"
+    )
+
+setup_logging()

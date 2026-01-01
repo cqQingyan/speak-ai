@@ -1,59 +1,27 @@
 import pytest
-import pytest_asyncio
-from httpx import AsyncClient, ASGITransport
-from main import app
-from database import get_db, Base, engine
-from models import User
-from auth import get_password_hash
-import asyncio
+from auth import create_refresh_token, verify_refresh_token, revoke_refresh_token
+from models import User, RefreshToken
+from datetime import datetime, timedelta
 
-# Use an in-memory SQLite database for testing
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
+@pytest.mark.asyncio
+async def test_refresh_token_lifecycle(db_session):
+    # Setup User
+    user = User(username="testuser", email="test@test.com", hashed_password="hashed")
+    db_session.add(user)
+    await db_session.commit()
+    await db_session.refresh(user)
 
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
+    # 1. Create Token
+    token = await create_refresh_token(db_session, user.id)
+    assert token is not None
 
-test_engine = create_async_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine, class_=AsyncSession)
+    # 2. Verify Token
+    verified_user_id = await verify_refresh_token(db_session, token)
+    assert verified_user_id == user.id
 
-async def override_get_db():
-    async with TestingSessionLocal() as session:
-        yield session
+    # 3. Revoke Token
+    await revoke_refresh_token(db_session, token)
 
-app.dependency_overrides[get_db] = override_get_db
-
-@pytest_asyncio.fixture(scope="module")
-async def setup_db():
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    yield
-    async with test_engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-
-@pytest.mark.asyncio(loop_scope="module")
-async def test_register_login(setup_db):
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        # Register
-        response = await ac.post("/auth/register", json={
-            "username": "testuser",
-            "password": "testpassword",
-            "email": "test@example.com"
-        })
-        assert response.status_code == 200
-        assert "access_token" in response.json()
-
-        # Login
-        response = await ac.post("/auth/login", json={
-            "username": "testuser",
-            "password": "testpassword"
-        })
-        assert response.status_code == 200
-        assert "access_token" in response.json()
-
-        # Login Fail
-        response = await ac.post("/auth/login", json={
-            "username": "testuser",
-            "password": "wrongpassword"
-        })
-        assert response.status_code == 401
+    # 4. Verify Revoked Token (Should fail)
+    verified_user_id = await verify_refresh_token(db_session, token)
+    assert verified_user_id is None

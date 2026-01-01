@@ -8,18 +8,22 @@ from fastapi.templating import Jinja2Templates
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
-from config import Config, setup_logging
+from config import settings, setup_logging
 from services.asr_service import transcribe_audio
 from services.llm_service import chat_with_llm
 from services.tts_service import text_to_speech_stream
 from database import engine, Base
 from routers import auth_router, ws_router
+from prometheus_fastapi_instrumentator import Instrumentator
 
 # Setup
 setup_logging()
 logger = logging.getLogger(__name__)
 
 app = FastAPI(title="Voice Assistant API", version="1.0")
+
+# Prometheus
+Instrumentator().instrument(app).expose(app)
 
 # Rate Limiter
 limiter = Limiter(key_func=get_remote_address)
@@ -38,6 +42,10 @@ app.include_router(ws_router.router, tags=["websocket"])
 async def startup():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+    # Configure SSL if enabled (handled by Uvicorn, but we can log)
+    if settings.SSL_CERT_FILE:
+        logger.info(f"SSL Enabled with cert: {settings.SSL_CERT_FILE}")
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
@@ -74,7 +82,10 @@ async def process_audio(
             }) + "\n"
 
             # Stream TTS for error message
-            async for chunk in text_to_speech_stream(ai_text):
+            async def str_iterator_err(text):
+                yield text
+
+            async for chunk in text_to_speech_stream(str_iterator_err(ai_text)):
                  yield json.dumps({
                     "type": "audio",
                     "data": base64.b64encode(chunk).decode('utf-8')
@@ -87,7 +98,11 @@ async def process_audio(
         except:
             history_list = []
 
-        ai_text = await chat_with_llm(user_text, history_list)
+        # Accumulate LLM response
+        ai_text_tokens = []
+        async for token in chat_with_llm(user_text, history_list):
+            ai_text_tokens.append(token)
+        ai_text = "".join(ai_text_tokens)
 
         # Send Metadata
         yield json.dumps({
@@ -97,7 +112,10 @@ async def process_audio(
         }) + "\n"
 
         # 3. TTS Streaming
-        async for chunk in text_to_speech_stream(ai_text):
+        async def str_iterator(text):
+            yield text
+
+        async for chunk in text_to_speech_stream(str_iterator(ai_text)):
             yield json.dumps({
                 "type": "audio",
                 "data": base64.b64encode(chunk).decode('utf-8')
@@ -107,4 +125,11 @@ async def process_audio(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host=Config.HOST, port=Config.PORT)
+    # SSL config is passed via env vars or args in docker, but here we can support explicit start
+    ssl_cert = settings.SSL_CERT_FILE
+    ssl_key = settings.SSL_KEY_FILE
+
+    if ssl_cert and ssl_key:
+        uvicorn.run(app, host=settings.HOST, port=settings.PORT, ssl_certfile=ssl_cert, ssl_keyfile=ssl_key)
+    else:
+        uvicorn.run(app, host=settings.HOST, port=settings.PORT)

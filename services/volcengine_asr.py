@@ -5,15 +5,15 @@ import uuid
 import gzip
 import struct
 import asyncio
-from config import Config
+from config import settings
 
 logger = logging.getLogger(__name__)
 
 class VolcengineASRService:
     def __init__(self):
         self.url = "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel"
-        self.app_id = Config.VOLC_APPID
-        self.access_token = Config.VOLC_TOKEN
+        self.app_id = settings.VOLC_APPID
+        self.access_token = settings.VOLC_TOKEN
         # Resource ID for streaming ASR
         self.resource_id = "volc.bigasr.sauc.duration" # Using duration based billing resource id
 

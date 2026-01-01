@@ -6,6 +6,7 @@ services:
     container_name: voice-assistant-app
     ports:
       - "8000:8000"
+    command: python main.py
     environment:
       - VOLC_APPID=${VOLC_APPID}
       - VOLC_TOKEN=${VOLC_TOKEN}
@@ -15,6 +16,19 @@ services:
       - MINIMAX_API_KEY=${MINIMAX_API_KEY}
       - DATABASE_URL=sqlite+aiosqlite:///./data/voice_assistant.db
       - SECRET_KEY=${SECRET_KEY}
+      - REDIS_URL=redis://redis:6379/0
+      - SSL_CERT_FILE=/app/certs/cert.pem
+      - SSL_KEY_FILE=/app/certs/key.pem
     volumes:
       - ./data:/app/data
+      - ./certs:/app/certs
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    container_name: voice-assistant-redis
+    ports:
+      - "6379:6379"
     restart: unless-stopped
