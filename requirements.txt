@@ -13,3 +13,11 @@ sqlalchemy
 aiosqlite
 python-jose[cryptography]
 passlib[bcrypt]
+redis
+tenacity
+prometheus-fastapi-instrumentator
+pydantic-settings
+loguru
+argon2-cffi
+types-redis
+mypy

@@ -1,5 +1,7 @@
 __pycache__/
 *.pyc
 .env
-verification/
-flask.log
+.pytest_cache/
+certs/
+app.log
+data/

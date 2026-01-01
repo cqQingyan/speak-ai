@@ -1,15 +1,25 @@
 import httpx
 import logging
 import json
-import asyncio
-from config import Config
+import hashlib
+from redis.asyncio import Redis
+from tenacity import retry, stop_after_attempt, wait_exponential
+from config import settings
 
 logger = logging.getLogger(__name__)
 
-# Cache (Simple Dict for now)
-TTS_CACHE = {}
-MAX_CACHE_SIZE = 100
+# Redis for Audio Caching (Binary safe)
+redis_client = Redis.from_url(settings.REDIS_URL, decode_responses=False)
 
+# Shared Client
+async def get_httpx_client():
+    limits = httpx.Limits(max_keepalive_connections=20, max_connections=50)
+    return httpx.AsyncClient(limits=limits, timeout=10.0)
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=5)
+)
 async def tts_request(text):
     """
     Helper to send a single TTS request for a sentence.
@@ -18,15 +28,19 @@ async def tts_request(text):
     if not text.strip():
         return
 
+    # Cache Key
+    cache_key = f"tts:{hashlib.md5(text.encode()).hexdigest()}"
+
     # Check Cache
-    if text in TTS_CACHE:
+    cached_audio = await redis_client.get(cache_key)
+    if cached_audio:
         logger.info("TTS Cache Hit")
-        yield TTS_CACHE[text]
+        yield cached_audio
         return
 
-    url = f"https://api.minimaxi.com/v1/t2a_v2?groupId={Config.MINIMAX_GROUP_ID}"
+    url = f"https://api.minimaxi.com/v1/t2a_v2?groupId={settings.MINIMAX_GROUP_ID}"
     headers = {
-        "Authorization": f"Bearer {Config.MINIMAX_API_KEY}",
+        "Authorization": f"Bearer {settings.MINIMAX_API_KEY}",
         "Content-Type": "application/json"
     }
 
@@ -50,35 +64,37 @@ async def tts_request(text):
     full_audio = b""
 
     try:
-        async with httpx.AsyncClient() as client:
-            async with client.stream("POST", url, headers=headers, json=payload) as response:
-                if response.status_code != 200:
-                    logger.error(f"TTS Error: {response.status_code}")
-                    return
+        client = await get_httpx_client()
+        async with client.stream("POST", url, headers=headers, json=payload) as response:
+            if response.status_code != 200:
+                logger.error(f"TTS Error: {response.status_code}")
+                # Don't retry on 4xx errors usually, but 5xx yes.
+                # raising error triggers tenacity retry
+                if response.status_code >= 500:
+                    response.raise_for_status()
+                return
 
-                async for line in response.aiter_lines():
-                    if not line: continue
-                    if line.startswith("data:"):
-                        line = line[5:]
+            async for line in response.aiter_lines():
+                if not line: continue
+                if line.startswith("data:"):
+                    line = line[5:]
 
-                    try:
-                        data = json.loads(line)
-                        if 'data' in data and 'audio' in data['data']:
-                            chunk = bytes.fromhex(data['data']['audio'])
-                            full_audio += chunk
-                    except json.JSONDecodeError:
-                        continue
+                try:
+                    data = json.loads(line)
+                    if 'data' in data and 'audio' in data['data']:
+                        chunk = bytes.fromhex(data['data']['audio'])
+                        full_audio += chunk
+                except json.JSONDecodeError:
+                    continue
 
-        # Cache Update and Yield Full Buffer
-        # We yield the complete buffer so the frontend gets a valid playable file (MP3) for this sentence.
+        # Cache Update (Expire in 24 hours)
         if full_audio:
-            if len(TTS_CACHE) >= MAX_CACHE_SIZE:
-                TTS_CACHE.pop(next(iter(TTS_CACHE)))
-            TTS_CACHE[text] = full_audio
-            yield full_audio
+             await redis_client.setex(cache_key, 86400, full_audio)
+             yield full_audio
 
     except Exception as e:
         logger.error(f"TTS Request Exception: {e}")
+        raise e
 
 async def text_to_speech_stream(text_iterator):
     """
@@ -93,14 +109,18 @@ async def text_to_speech_stream(text_iterator):
 
         # Check if we have a full sentence
         if any(p in token for p in punctuation):
-            # Actually, let's just send the buffer if it ends with punctuation or is long enough
-            # to ensure we don't send too small fragments that sound unnatural.
             if buffer[-1] in punctuation or len(buffer) > 50:
-                async for audio_chunk in tts_request(buffer):
-                    yield audio_chunk
+                try:
+                    async for audio_chunk in tts_request(buffer):
+                        yield audio_chunk
+                except Exception:
+                    pass # Continue to next sentence even if one fails
                 buffer = ""
 
     # Process remaining buffer
     if buffer:
-        async for audio_chunk in tts_request(buffer):
-            yield audio_chunk
+        try:
+            async for audio_chunk in tts_request(buffer):
+                yield audio_chunk
+        except Exception:
+            pass

@@ -1,6 +1,6 @@
 import httpx
 import logging
-from config import Config
+from config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +24,7 @@ async def transcribe_audio(audio_data):
     }
 
     headers = {
-        "Authorization": f"Bearer {Config.SILICON_KEY}"
+        "Authorization": f"Bearer {settings.SILICON_KEY}"
     }
 
     try:
